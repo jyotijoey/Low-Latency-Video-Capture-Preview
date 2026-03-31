@@ -1,0 +1,90 @@
+{
+  "name": "video-capture-preview",
+  "version": "1.0.0",
+  "description": "Live video capture device preview (Linux & Windows)",
+  "author": {
+    "name": "Video Capture Preview",
+    "email": "user@localhost"
+  },
+  "main": "public/electron.js",
+  "homepage": "./",
+  "interdependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "ffmpeg-static": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "concurrently": "^8.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^34.0.0",
+    "electron-builder": "^24.6.4",
+    "react-scripts": "5.0.1",
+    "wait-on": "^7.0.1"
+  },
+  "scripts": {
+    "react-start": "cross-env BROWSER=none react-scripts start",
+    "react-build": "react-scripts build",
+    "electron-start": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+    "start": "concurrently \"npm run react-start\" \"npm run electron-start\"",
+    "build": "npm run react-build && electron-builder",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": "react-app"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "build": {
+    "appId": "com.videocapture.preview",
+    "productName": "Video Capture Preview",
+    "asar": true,
+    "files": [
+      "build/**/*",
+      "public/electron.js",
+      "public/preload.js",
+      "node_modules/ffmpeg-static/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-static/",
+        "to": "ffmpeg-static/",
+        "filter": ["ffmpeg", "ffmpeg.exe"]
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Multimedia"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
