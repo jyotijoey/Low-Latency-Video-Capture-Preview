@@ -124,7 +124,9 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  overflow-y: auto;
+  max-height: 100vh;
 }
 
 .control-group {
@@ -150,6 +152,24 @@ body {
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.2s;
+}
+
+.control-group input {
+  padding: 10px;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.control-group input:hover,
+.control-group input:focus,
+.control-group select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+  outline: none;
 }
 
 .control-group select:hover:not(:disabled) {
@@ -222,6 +242,349 @@ body {
   word-break: break-word;
 }
 
+.remote-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 4px;
+  border-top: 1px solid #3b3b3b;
+}
+
+.section-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.remote-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #d0d0d0;
+}
+
+.info-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #6b7280;
+  background: #1b1d24;
+  color: #f5f5f5;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.info-button:hover {
+  border-color: #8ea4ff;
+  background: #242836;
+  transform: translateY(-1px);
+}
+
+.info-button:active {
+  transform: translateY(0);
+}
+
+.toggle-switch {
+  width: 52px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: #4a4a4a;
+  padding: 3px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.toggle-switch.enabled {
+  background: #5d73d7;
+}
+
+.toggle-thumb {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch.enabled .toggle-thumb {
+  transform: translateX(22px);
+}
+
+.keyboard-help {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  background: #20242f;
+  border: 1px solid #37415c;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #dbe2ff;
+}
+
+.remote-shell {
+  background: linear-gradient(180deg, #1c1e24 0%, #14161a 100%);
+  border: 1px solid #363a47;
+  border-radius: 16px;
+  padding: 12px 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+.remote-top-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.remote-body {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.remote-button {
+  border: 1px solid #4e566d;
+  background: linear-gradient(180deg, #2b3140 0%, #202531 100%);
+  color: #f5f7ff;
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+}
+
+.remote-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #8ea4ff;
+  box-shadow: 0 10px 18px rgba(32, 37, 49, 0.35);
+}
+
+.remote-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.remote-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.remote-pill-button {
+  border-radius: 8px;
+  padding: 7px 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* D-pad: compact 3x3 grid cross layout */
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 46px);
+  grid-template-rows: repeat(3, 46px);
+  gap: 3px;
+  background: transparent;
+}
+
+.dpad-button {
+  width: 46px;
+  height: 46px;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  position: static;
+  transform: none;
+}
+
+/* place each button in its cross cell */
+.dpad-up     { grid-column: 2; grid-row: 1; }
+.dpad-left   { grid-column: 1; grid-row: 2; }
+.dpad-center { grid-column: 2; grid-row: 2; font-size: 12px; }
+.dpad-right  { grid-column: 3; grid-row: 2; }
+.dpad-down   { grid-column: 2; grid-row: 3; }
+
+.dpad-button:hover:not(:disabled) {
+  transform: none;
+  border-color: #8ea4ff;
+  box-shadow: 0 4px 10px rgba(32, 37, 49, 0.35);
+}
+
+.side-button-column {
+  display: grid;
+  gap: 6px;
+}
+
+.side-button {
+  min-width: 60px;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.remote-status {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.remote-status.pending {
+  background: rgba(33, 150, 243, 0.18);
+  color: #a9d5ff;
+}
+
+.remote-status.success {
+  background: rgba(76, 175, 80, 0.18);
+  color: #b7efba;
+}
+
+.remote-status.error {
+  background: rgba(244, 67, 54, 0.18);
+  color: #ffb5af;
+}
+
+/* Media transport row */
+.remote-media-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.media-button {
+  border-radius: 6px;
+  padding: 7px 4px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Collapsible text-input keypad */
+.keypad-section {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #3b3b3b;
+  padding-top: 10px;
+}
+
+.keypad-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #20242f;
+  border: 1px solid #3b3b3b;
+  border-radius: 8px;
+  color: #d0d0d0;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.keypad-toggle-btn:hover {
+  background: #252a38;
+  border-color: #4e566d;
+}
+
+.keypad-toggle-btn.open {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+
+.keypad-chevron {
+  font-size: 10px;
+  color: #888;
+}
+
+.keypad {
+  background: #181b23;
+  border: 1px solid #3b3b3b;
+  border-top: none;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.keypad-row {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.key-btn {
+  flex: 1;
+  max-width: 30px;
+  height: 32px;
+  border-radius: 5px;
+  border: 1px solid #3e4558;
+  background: linear-gradient(180deg, #2b3140 0%, #202531 100%);
+  color: #f0f2ff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 3px;
+  transition: transform 0.1s ease, border-color 0.1s ease, background 0.1s ease;
+}
+
+.key-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3a4260 0%, #2b3350 100%);
+  border-color: #7a8fff;
+  transform: translateY(-1px);
+}
+
+.key-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.96);
+}
+
+.key-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.shift-btn {
+  max-width: 40px;
+  font-size: 14px;
+}
+
+.shift-btn.active {
+  background: linear-gradient(180deg, #4a5580 0%, #3a4568 100%);
+  border-color: #8ea4ff;
+  color: #fff;
+}
+
+.space-btn {
+  flex: 3;
+  max-width: none;
+}
+
+.sym-btn {
+  max-width: 30px;
+}
+
+.backspace-btn {
+  max-width: 40px;
+  font-size: 14px;
+}
+
+.enter-btn {
+  max-width: 40px;
+  font-size: 14px;
+}
+
 /* Responsive design */
 @media (max-width: 1024px) {
   .container {
@@ -234,5 +597,14 @@ body {
 
   .video-section {
     min-height: 400px;
+  }
+
+  .remote-body {
+    flex-direction: column;
+  }
+
+  .side-button-column {
+    width: 100%;
+    grid-template-columns: repeat(3, 1fr);
   }
 }

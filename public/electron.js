@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
+const http = require('http');
+const https = require('https');
 const path = require('path');
 
 // app.isPackaged is false in dev, true in production build
@@ -32,6 +34,50 @@ const safeSendToRenderer = (channel, payload) => {
 
   mainWindow.webContents.send(channel, payload);
 };
+
+const isValidDeviceAddress = (value) => {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const trimmed = value.trim();
+  return /^(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?$/.test(trimmed);
+};
+
+const normalizeDeviceUrl = (deviceAddress, key) => {
+  const trimmed = deviceAddress.trim();
+  const hasProtocol = /^https?:\/\//i.test(trimmed);
+  const baseUrl = hasProtocol ? trimmed : `http://${trimmed.includes(':') ? trimmed : `${trimmed}:8060`}`;
+  return new URL(`/keypress/${encodeURIComponent(key)}`, baseUrl);
+};
+
+const sendRemoteKeypress = (deviceAddress, key) => new Promise((resolve, reject) => {
+  const requestUrl = normalizeDeviceUrl(deviceAddress, key);
+  const client = requestUrl.protocol === 'https:' ? https : http;
+  const request = client.request(requestUrl, {
+    method: 'POST',
+    timeout: 3000,
+  }, (response) => {
+    response.resume();
+
+    if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
+      resolve();
+      return;
+    }
+
+    reject(new Error(`Remote request failed with status ${response.statusCode || 'unknown'}`));
+  });
+
+  request.on('timeout', () => {
+    request.destroy(new Error('Remote request timed out'));
+  });
+
+  request.on('error', (error) => {
+    reject(error);
+  });
+
+  request.end();
+});
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -234,4 +280,38 @@ ipcMain.handle('list-video-devices', async () => {
 
     resolve(devices);
   });
+});
+
+ipcMain.handle('send-remote-keypress', async (event, payload) => {
+  const deviceAddress = payload?.deviceAddress?.trim();
+  const key = payload?.key;
+
+  if (!deviceAddress) {
+    const message = 'Device IP address is required';
+    safeSendToRenderer('remote-status', { type: 'error', message });
+    throw new Error(message);
+  }
+
+  if (!isValidDeviceAddress(deviceAddress)) {
+    const message = 'Enter a valid IPv4 address';
+    safeSendToRenderer('remote-status', { type: 'error', message });
+    throw new Error(message);
+  }
+
+  if (!key) {
+    const message = 'Remote action is missing';
+    safeSendToRenderer('remote-status', { type: 'error', message });
+    throw new Error(message);
+  }
+
+  try {
+    await sendRemoteKeypress(deviceAddress, key);
+    const message = `Sent ${key}`;
+    safeSendToRenderer('remote-status', { type: 'success', message, key });
+    return { ok: true, message };
+  } catch (error) {
+    const message = error.message || 'Failed to reach remote device';
+    safeSendToRenderer('remote-status', { type: 'error', message, key });
+    throw new Error(message);
+  }
 });

@@ -2,10 +2,7 @@
   "name": "video-capture-preview",
   "version": "1.0.0",
   "description": "Live video capture device preview (Linux & Windows)",
-  "author": {
-    "name": "Video Capture Preview",
-    "email": "user@localhost"
-  },
+  "author": "Video Capture Preview Maintainers",
   "main": "public/electron.js",
   "homepage": "./",
   "interdependencies": {
@@ -72,6 +69,7 @@
         "AppImage",
         "deb"
       ],
+      "maintainer": "Video Capture Preview Maintainers <jyotijoey@users.noreply.github.com>",
       "category": "Multimedia"
     },
     "win": {

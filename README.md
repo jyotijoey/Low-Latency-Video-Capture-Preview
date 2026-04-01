@@ -57,6 +57,24 @@ This will:
 npm run build
 ```
 
+## Use From Launcher App (Linux)
+
+If you want to open the app from the Linux Apps menu (launcher icon), install the `.deb` package:
+
+```bash
+cd /path/to/test_viewer
+npm run react-build
+npx electron-builder --linux deb
+sudo dpkg -i dist/video-capture-preview_1.0.0_amd64.deb
+```
+
+After install:
+1. Open your Apps menu
+2. Search for `Video Capture Preview`
+3. Launch it from the icon
+
+To update launcher version after code changes, run the same 4 commands again.
+
 ## Project Structure
 
 ```
@@ -102,15 +120,15 @@ test_viewer/
 ### Linux (V4L2)
 ```bash
 ffmpeg -f v4l2 -input_format mjpeg -i /dev/video0 \
-  -f image2pipe -pix_fmt rgb24 \
-  -vf scale=1280:720 -r 30 pipe:1
+  -f rawvideo -vcodec rawvideo -pix_fmt rgba \
+  -vf scale=960:540:flags=bicubic -r 24 pipe:1
 ```
 
 ### Windows (DirectShow)
 ```bash
 ffmpeg -f dshow -i "video=DEVICE_NAME" \
-  -f image2pipe -pix_fmt rgb24 \
-  -vf scale=1280:720 -r 30 pipe:1
+  -f rawvideo -vcodec rawvideo -pix_fmt rgba \
+  -vf scale=960:540:flags=bicubic -r 24 pipe:1
 ```
 
 ## Configuration
