@@ -1,11 +1,40 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
+import RemoteControl from './components/RemoteControl';
+
+const REMOTE_STORAGE_KEY = 'remote-device-address';
+const KEYBOARD_REMOTE_STORAGE_KEY = 'remote-keyboard-enabled';
+
+const isEditableTarget = (target) => {
+  if (!target) {
+    return false;
+  }
+
+  const tagName = target.tagName?.toLowerCase();
+  return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+};
+
+const isValidIpAddress = (value) => /^(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?$/.test(value.trim());
+
+const keyboardActionMap = {
+  ArrowUp: 'Up',
+  ArrowDown: 'Down',
+  ArrowLeft: 'Left',
+  ArrowRight: 'Right',
+  Enter: 'Select',
+  Backspace: 'Back',
+  Home: 'Home',
+  ' ': 'Play',
+};
 
 function App() {
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const imageDataRef = useRef(null);
   const frameSizeRef = useRef(960 * 540 * 4);
+  const deviceAddressRef = useRef('');
+  const drawFrameRef = useRef(null);
+  const sendRemoteKeypressRef = useRef(null);
   const [isRunning, setIsRunning] = useState(false);
   const [platform, setPlatform] = useState('');
   const [devices, setDevices] = useState([]);
@@ -13,12 +42,24 @@ function App() {
   const [status, setStatus] = useState('Idle');
   const [error, setError] = useState('');
   const [videoConfig, setVideoConfig] = useState({ width: 960, height: 540 });
+  const [deviceAddress, setDeviceAddress] = useState('');
+  const [remoteStatus, setRemoteStatus] = useState(null);
+  const [keyboardRemoteEnabled, setKeyboardRemoteEnabled] = useState(false);
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [isSendingRemoteKey, setIsSendingRemoteKey] = useState(false);
 
   // Image data buffer and dimensions
   const WIDTH = videoConfig.width;
   const HEIGHT = videoConfig.height;
 
   useEffect(() => {
+    const storedDeviceAddress = window.localStorage.getItem(REMOTE_STORAGE_KEY) || '';
+    const storedKeyboardPreference = window.localStorage.getItem(KEYBOARD_REMOTE_STORAGE_KEY) === 'true';
+
+    setDeviceAddress(storedDeviceAddress);
+    deviceAddressRef.current = storedDeviceAddress;
+    setKeyboardRemoteEnabled(storedKeyboardPreference);
+
     const initApp = async () => {
       const plat = await window.electronAPI.getPlatform();
       setPlatform(plat);
@@ -32,7 +73,7 @@ function App() {
 
       // Listen for video frames
       window.electronAPI.onVideoFrame((frameData) => {
-        drawFrame(frameData);
+        drawFrameRef.current?.(frameData);
       });
 
       window.electronAPI.onVideoConfig((cfg) => {
@@ -50,6 +91,10 @@ function App() {
         setIsRunning(false);
         setStatus('Stopped');
       });
+
+      window.electronAPI.onRemoteStatus((nextStatus) => {
+        setRemoteStatus(nextStatus);
+      });
     };
 
     initApp();
@@ -59,8 +104,18 @@ function App() {
       window.electronAPI.removeListener('video-config');
       window.electronAPI.removeListener('video-error');
       window.electronAPI.removeListener('video-stopped');
+      window.electronAPI.removeListener('remote-status');
     };
   }, []);
+
+  useEffect(() => {
+    deviceAddressRef.current = deviceAddress;
+    window.localStorage.setItem(REMOTE_STORAGE_KEY, deviceAddress);
+  }, [deviceAddress]);
+
+  useEffect(() => {
+    window.localStorage.setItem(KEYBOARD_REMOTE_STORAGE_KEY, String(keyboardRemoteEnabled));
+  }, [keyboardRemoteEnabled]);
 
   const drawFrame = (frameData) => {
     const canvas = canvasRef.current;
@@ -99,6 +154,8 @@ function App() {
     ctxRef.current.putImageData(imageDataRef.current, 0, 0);
   };
 
+  drawFrameRef.current = drawFrame;
+
   const startVideo = async () => {
     if (!selectedDevice) {
       setError('No video device selected');
@@ -128,6 +185,55 @@ function App() {
       setError(`Failed to stop: ${err}`);
     }
   };
+
+  const sendRemoteKeypress = async (key) => {
+    const trimmedAddress = deviceAddressRef.current.trim();
+
+    if (!trimmedAddress) {
+      setRemoteStatus({ type: 'error', message: 'Device IP address is required' });
+      return;
+    }
+
+    if (!isValidIpAddress(trimmedAddress)) {
+      setRemoteStatus({ type: 'error', message: 'Enter a valid IPv4 address' });
+      return;
+    }
+
+    try {
+      setIsSendingRemoteKey(true);
+      setRemoteStatus({ type: 'pending', message: `Sending ${key}...` });
+      const result = await window.electronAPI.sendRemoteKeypress(trimmedAddress, key);
+      setRemoteStatus({ type: 'success', message: result.message || `Sent ${key}` });
+    } catch (err) {
+      setRemoteStatus({ type: 'error', message: err.message || `Failed to send ${key}` });
+    } finally {
+      setIsSendingRemoteKey(false);
+    }
+  };
+
+  sendRemoteKeypressRef.current = sendRemoteKeypress;
+
+  useEffect(() => {
+    const handleKeyDown = async (event) => {
+      if (!keyboardRemoteEnabled || !document.hasFocus() || isEditableTarget(event.target)) {
+        return;
+      }
+
+      const action = keyboardActionMap[event.key];
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+      await sendRemoteKeypressRef.current?.(action);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [keyboardRemoteEnabled]);
 
   return (
     <div className="app">
@@ -182,6 +288,18 @@ function App() {
               Stop
             </button>
           </div>
+
+          <RemoteControl
+            deviceAddress={deviceAddress}
+            onDeviceAddressChange={setDeviceAddress}
+            keyboardEnabled={keyboardRemoteEnabled}
+            onKeyboardEnabledChange={setKeyboardRemoteEnabled}
+            showKeyboardHelp={showKeyboardHelp}
+            onKeyboardHelpToggle={() => setShowKeyboardHelp((current) => !current)}
+            onSendKeypress={sendRemoteKeypress}
+            remoteStatus={remoteStatus}
+            isSending={isSendingRemoteKey}
+          />
 
           {error && <div className="error-message">{error}</div>}
         </div>
