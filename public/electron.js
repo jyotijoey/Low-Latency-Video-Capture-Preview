@@ -26,6 +26,22 @@ const PREVIEW = {
   height: 540,
   fps: 24,
 };
+const FFMPEG_LOG_LEVEL = 'warning';
+
+const handleFfmpegStderr = (data) => {
+  const text = data.toString();
+  const lines = text.split(/\r?\n/);
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line || line.startsWith('frame=')) {
+      continue;
+    }
+
+    console.error(`ffmpeg: ${line}`);
+  }
+};
 
 const safeSendToRenderer = (channel, payload) => {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -150,6 +166,9 @@ ipcMain.handle('start-video', async (event, device) => {
 
       if (platform === 'linux') {
         ffmpegArgs = [
+          '-hide_banner',
+          '-nostats',
+          '-loglevel', FFMPEG_LOG_LEVEL,
           '-fflags', 'nobuffer',
           '-flags', 'low_delay',
           '-f', 'v4l2',
@@ -165,6 +184,9 @@ ipcMain.handle('start-video', async (event, device) => {
         ];
       } else if (platform === 'win32') {
         ffmpegArgs = [
+          '-hide_banner',
+          '-nostats',
+          '-loglevel', FFMPEG_LOG_LEVEL,
           '-fflags', 'nobuffer',
           '-flags', 'low_delay',
           '-f', 'dshow',
@@ -193,17 +215,25 @@ ipcMain.handle('start-video', async (event, device) => {
         // Accumulate incoming chunks into a buffer
         frameBuffer = Buffer.concat([frameBuffer, chunk]);
 
-        // Extract and send complete frames only
-        while (frameBuffer.length >= FRAME_BYTES) {
-          const frame = frameBuffer.slice(0, FRAME_BYTES);
-          frameBuffer = frameBuffer.slice(FRAME_BYTES);
-          safeSendToRenderer('video-frame', frame);
+        // Send only the most recent complete frame to avoid backlog build-up.
+        if (frameBuffer.length >= FRAME_BYTES) {
+          const remainder = frameBuffer.length % FRAME_BYTES;
+          const latestFrameStart = frameBuffer.length - remainder - FRAME_BYTES;
+          const frame = frameBuffer.slice(latestFrameStart, latestFrameStart + FRAME_BYTES);
+
+          frameBuffer = remainder > 0
+            ? frameBuffer.slice(frameBuffer.length - remainder)
+            : Buffer.alloc(0);
+
+          const framePayload = frame.buffer.slice(
+            frame.byteOffset,
+            frame.byteOffset + frame.byteLength,
+          );
+          safeSendToRenderer('video-frame', framePayload);
         }
       });
 
-      ffmpegProcess.stderr.on('data', (data) => {
-        console.error(`ffmpeg stderr: ${data}`);
-      });
+      ffmpegProcess.stderr.on('data', handleFfmpegStderr);
 
       ffmpegProcess.on('error', (err) => {
         ffmpegProcess = null;

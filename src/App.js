@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import RemoteControl from './components/RemoteControl';
+import LogsOverlay from './components/LogsOverlay';
 
 const REMOTE_STORAGE_KEY = 'remote-device-address';
 const KEYBOARD_REMOTE_STORAGE_KEY = 'remote-keyboard-enabled';
@@ -28,6 +29,9 @@ const keyboardActionMap = {
 };
 
 function App() {
+  const MAX_LOG_ENTRIES = 1000;
+  const LOG_FLUSH_MS = 120;
+
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const imageDataRef = useRef(null);
@@ -35,6 +39,10 @@ function App() {
   const deviceAddressRef = useRef('');
   const drawFrameRef = useRef(null);
   const sendRemoteKeypressRef = useRef(null);
+  const latestFrameRef = useRef(null);
+  const frameRenderRequestRef = useRef(null);
+  const pendingLogsRef = useRef([]);
+  const flushLogsTimerRef = useRef(null);
   const [isRunning, setIsRunning] = useState(false);
   const [platform, setPlatform] = useState('');
   const [devices, setDevices] = useState([]);
@@ -47,6 +55,45 @@ function App() {
   const [keyboardRemoteEnabled, setKeyboardRemoteEnabled] = useState(false);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [isSendingRemoteKey, setIsSendingRemoteKey] = useState(false);
+  const [logs, setLogs] = useState([]);
+
+  const flushQueuedLogs = useCallback(() => {
+    flushLogsTimerRef.current = null;
+
+    if (pendingLogsRef.current.length === 0) {
+      return;
+    }
+
+    const batch = pendingLogsRef.current;
+    pendingLogsRef.current = [];
+
+    setLogs((prev) => {
+      const next = prev.concat(batch);
+      return next.length > MAX_LOG_ENTRIES ? next.slice(-MAX_LOG_ENTRIES) : next;
+    });
+  }, [MAX_LOG_ENTRIES]);
+
+  const addLog = useCallback((text, level = 'info', timestamp = Date.now()) => {
+    pendingLogsRef.current.push({
+      id: `${timestamp}-${Math.random()}`,
+      ts: timestamp,
+      timeLabel: new Date(timestamp).toLocaleTimeString(),
+      level,
+      text,
+    });
+
+    if (!flushLogsTimerRef.current) {
+      flushLogsTimerRef.current = setTimeout(flushQueuedLogs, LOG_FLUSH_MS);
+    }
+  }, [flushQueuedLogs, LOG_FLUSH_MS]);
+
+  useEffect(() => {
+    return () => {
+      if (flushLogsTimerRef.current) {
+        clearTimeout(flushLogsTimerRef.current);
+      }
+    };
+  }, []);
 
   // Image data buffer and dimensions
   const WIDTH = videoConfig.width;
@@ -73,7 +120,21 @@ function App() {
 
       // Listen for video frames
       window.electronAPI.onVideoFrame((frameData) => {
-        drawFrameRef.current?.(frameData);
+        latestFrameRef.current = frameData;
+
+        if (frameRenderRequestRef.current !== null) {
+          return;
+        }
+
+        frameRenderRequestRef.current = window.requestAnimationFrame(() => {
+          frameRenderRequestRef.current = null;
+          const pendingFrame = latestFrameRef.current;
+          latestFrameRef.current = null;
+
+          if (pendingFrame) {
+            drawFrameRef.current?.(pendingFrame);
+          }
+        });
       });
 
       window.electronAPI.onVideoConfig((cfg) => {
@@ -100,6 +161,12 @@ function App() {
     initApp();
 
     return () => {
+      if (frameRenderRequestRef.current !== null) {
+        window.cancelAnimationFrame(frameRenderRequestRef.current);
+        frameRenderRequestRef.current = null;
+      }
+
+      latestFrameRef.current = null;
       window.electronAPI.removeListener('video-frame');
       window.electronAPI.removeListener('video-config');
       window.electronAPI.removeListener('video-error');
@@ -202,6 +269,8 @@ function App() {
     try {
       setIsSendingRemoteKey(true);
       setRemoteStatus({ type: 'pending', message: `Sending ${key}...` });
+      const markerTs = Date.now();
+      addLog(`----- ${key} pressed (${new Date(markerTs).toLocaleTimeString()}) -----`, 'marker', markerTs);
       const result = await window.electronAPI.sendRemoteKeypress(trimmedAddress, key);
       setRemoteStatus({ type: 'success', message: result.message || `Sent ${key}` });
     } catch (err) {
@@ -250,9 +319,7 @@ function App() {
             height={HEIGHT}
             className="video-canvas"
           />
-          <div className="status-bar">
-            <span className={`status ${status.toLowerCase()}`}>{status}</span>
-          </div>
+          <LogsOverlay logs={logs} onClear={() => setLogs([])} />
         </div>
 
         <div className="control-section">
@@ -287,6 +354,10 @@ function App() {
             >
               Stop
             </button>
+          </div>
+
+          <div className="status-bar">
+            <span className={`status ${status.toLowerCase()}`}>{status}</span>
           </div>
 
           <RemoteControl
