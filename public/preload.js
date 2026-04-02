@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listVideoDevices: () => ipcRenderer.invoke('list-video-devices'),
   sendRemoteKeypress: (deviceAddress, key) =>
     ipcRenderer.invoke('send-remote-keypress', { deviceAddress, key }),
+  setDeviceLogSource: (deviceAddress) =>
+    ipcRenderer.invoke('set-device-log-source', { deviceAddress }),
+  stopDeviceLogs: () => ipcRenderer.invoke('stop-device-logs'),
   onVideoFrame: (callback) =>
     ipcRenderer.on('video-frame', (event, data) => callback(data)),
   onVideoConfig: (callback) =>
@@ -16,5 +19,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onVideoStopped: (callback) => ipcRenderer.on('video-stopped', callback),
   onRemoteStatus: (callback) =>
     ipcRenderer.on('remote-status', (event, status) => callback(status)),
+  onDeviceLogBatch: (callback) =>
+    ipcRenderer.on('device-log-batch', (event, batch) => callback(batch)),
+  onDeviceLogStatus: (callback) =>
+    ipcRenderer.on('device-log-status', (event, status) => callback(status)),
   removeListener: (channel) => ipcRenderer.removeAllListeners(channel),
 });

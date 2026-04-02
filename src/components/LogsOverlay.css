@@ -7,8 +7,9 @@
   z-index: 10;
   display: flex;
   flex-direction: column;
-  background: rgba(10, 10, 10, 0.75);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 8, 8, 0.4);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(3px);
 }
 
 /* ── Collapsed bar ─────────────────────────────────────────────────── */
@@ -23,7 +24,7 @@
   width: 100%;
   text-align: left;
   cursor: pointer;
-  color: #ccc;
+  color: #d6d6d6;
   font-size: 12px;
   font-family: monospace;
   flex-shrink: 0;
@@ -60,13 +61,30 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  max-height: 0;
-  transition: max-height 0.32s ease;
-  background: rgba(12, 12, 12, 0.88);
+  height: 0;
+  transition: height 0.22s ease;
+  background: rgba(12, 12, 12, 0.56);
 }
 
 .logs-overlay--expanded .logs-overlay__panel {
-  max-height: 242px; /* ~45% of default 540px video height */
+  height: var(--logs-panel-height, 242px);
+}
+
+.logs-overlay__panel--resizing {
+  transition: none;
+}
+
+.logs-overlay__resizer {
+  height: 9px;
+  cursor: ns-resize;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.24) 0,
+    rgba(255, 255, 255, 0.08) 2px,
+    rgba(255, 255, 255, 0) 100%
+  );
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
 }
 
 /* ── Toolbar ───────────────────────────────────────────────────────── */
@@ -75,7 +93,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.45);
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -154,7 +172,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  background: rgba(5, 5, 5, 0.92);
+  background: rgba(5, 5, 5, 0.42);
   scrollbar-width: thin;
   scrollbar-color: #2e2e2e transparent;
 }

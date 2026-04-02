@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LogsToolbar from './LogsToolbar';
 import LogsViewer from './LogsViewer';
 import './LogsOverlay.css';
@@ -7,6 +7,10 @@ function LogsOverlay({ logs, onClear }) {
   const [expanded, setExpanded] = useState(false);
   const [search, setSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState('all');
+  const [panelHeight, setPanelHeight] = useState(242);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartYRef = useRef(0);
+  const resizeStartHeightRef = useRef(242);
 
   const latestLog = logs[logs.length - 1];
   const normalizedSearch = search.trim().toLowerCase();
@@ -26,6 +30,46 @@ function LogsOverlay({ logs, onClear }) {
     navigator.clipboard.writeText(text).catch(() => {});
   };
 
+  const stopResize = useCallback(() => {
+    setIsResizing(false);
+    document.body.style.userSelect = '';
+  }, []);
+
+  const onResizeMove = useCallback((event) => {
+    const minHeight = 120;
+    const maxHeight = Math.round(window.innerHeight * 0.75);
+    const delta = resizeStartYRef.current - event.clientY;
+    const next = resizeStartHeightRef.current + delta;
+    const clamped = Math.max(minHeight, Math.min(maxHeight, next));
+    setPanelHeight(clamped);
+  }, []);
+
+  const startResize = (event) => {
+    event.preventDefault();
+    if (!expanded) {
+      return;
+    }
+
+    resizeStartYRef.current = event.clientY;
+    resizeStartHeightRef.current = panelHeight;
+    setIsResizing(true);
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    if (!isResizing) {
+      return undefined;
+    }
+
+    window.addEventListener('mousemove', onResizeMove);
+    window.addEventListener('mouseup', stopResize);
+
+    return () => {
+      window.removeEventListener('mousemove', onResizeMove);
+      window.removeEventListener('mouseup', stopResize);
+    };
+  }, [isResizing, onResizeMove, stopResize]);
+
   return (
     <div className={`logs-overlay${expanded ? ' logs-overlay--expanded' : ''}`}>
       <button
@@ -40,9 +84,19 @@ function LogsOverlay({ logs, onClear }) {
         </span>
         <span className="logs-overlay__label">Logs</span>
       </button>
-      <div className="logs-overlay__panel">
+      <div
+        className={`logs-overlay__panel${isResizing ? ' logs-overlay__panel--resizing' : ''}`}
+        style={{ '--logs-panel-height': `${panelHeight}px` }}
+      >
         {expanded ? (
           <>
+            <div
+              className="logs-overlay__resizer"
+              onMouseDown={startResize}
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize logs panel"
+            />
             <LogsToolbar
               search={search}
               onSearchChange={setSearch}

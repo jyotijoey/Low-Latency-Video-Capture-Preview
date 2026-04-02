@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import RemoteControl from './components/RemoteControl';
 import LogsOverlay from './components/LogsOverlay';
+import useDeviceTelnetLogs from './hooks/useDeviceTelnetLogs';
 
 const REMOTE_STORAGE_KEY = 'remote-device-address';
 const KEYBOARD_REMOTE_STORAGE_KEY = 'remote-keyboard-enabled';
@@ -86,6 +87,45 @@ function App() {
       flushLogsTimerRef.current = setTimeout(flushQueuedLogs, LOG_FLUSH_MS);
     }
   }, [flushQueuedLogs, LOG_FLUSH_MS]);
+
+  const addLogBatch = useCallback((entries) => {
+    if (!entries || entries.length === 0) {
+      return;
+    }
+
+    const mapped = entries.map((entry) => {
+      const ts = typeof entry.ts === 'number' ? entry.ts : Date.now();
+      return {
+        id: `${ts}-${Math.random()}`,
+        ts,
+        timeLabel: new Date(ts).toLocaleTimeString(),
+        level: entry.level || 'info',
+        text: entry.text,
+      };
+    });
+
+    pendingLogsRef.current.push(...mapped);
+    if (!flushLogsTimerRef.current) {
+      flushLogsTimerRef.current = setTimeout(flushQueuedLogs, LOG_FLUSH_MS);
+    }
+  }, [flushQueuedLogs, LOG_FLUSH_MS]);
+
+  const handleDeviceStatus = useCallback((status) => {
+    if (!status?.message) {
+      return;
+    }
+
+    if (status.type === 'error') {
+      addLog(`[Device logs] ${status.message}`, 'error', status.ts || Date.now());
+      return;
+    }
+
+    if (status.type === 'connected' || status.type === 'reconnecting' || status.type === 'connecting') {
+      addLog(`[Device logs] ${status.message}`, 'info', status.ts || Date.now());
+    }
+  }, [addLog]);
+
+  useDeviceTelnetLogs(deviceAddress, addLogBatch, handleDeviceStatus);
 
   useEffect(() => {
     return () => {
