@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
 const https = require('https');
+const net = require('net');
 const path = require('path');
 
 // app.isPackaged is false in dev, true in production build
@@ -21,10 +22,39 @@ const resolveFfmpeg = () => {
 
 let mainWindow;
 let ffmpegProcess = null;
+let deviceLogSocket = null;
+let deviceReconnectTimer = null;
+let deviceFlushTimer = null;
+let deviceBuffer = '';
+let deviceQueuedLines = [];
+let deviceCurrentConfig = null;
+let deviceIntentionalStop = false;
+let deviceReconnectAttempts = 0;
 const PREVIEW = {
   width: 960,
   height: 540,
   fps: 24,
+};
+const FFMPEG_LOG_LEVEL = 'warning';
+const DEVICE_DEFAULT_LOG_PORT = 8085;
+const DEVICE_RECONNECT_DELAY_MS = 2000;
+const DEVICE_MAX_RECONNECT_DELAY_MS = 15000;
+const DEVICE_LOG_FLUSH_MS = 80;
+const DEVICE_MAX_BATCH_LINES = 200;
+
+const handleFfmpegStderr = (data) => {
+  const text = data.toString();
+  const lines = text.split(/\r?\n/);
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line || line.startsWith('frame=')) {
+      continue;
+    }
+
+    console.error(`ffmpeg: ${line}`);
+  }
 };
 
 const safeSendToRenderer = (channel, payload) => {
@@ -34,6 +64,187 @@ const safeSendToRenderer = (channel, payload) => {
 
   mainWindow.webContents.send(channel, payload);
 };
+
+const nowTs = () => Date.now();
+
+const sendDeviceStatus = (status) => {
+  safeSendToRenderer('device-log-status', {
+    ts: nowTs(),
+    ...status,
+  });
+};
+
+const flushDeviceLogQueue = () => {
+  if (deviceFlushTimer) {
+    clearTimeout(deviceFlushTimer);
+    deviceFlushTimer = null;
+  }
+
+  if (deviceQueuedLines.length === 0) {
+    return;
+  }
+
+  const payload = deviceQueuedLines;
+  deviceQueuedLines = [];
+  safeSendToRenderer('device-log-batch', payload);
+};
+
+const queueDeviceLogLines = (lines) => {
+  if (!lines || lines.length === 0) {
+    return;
+  }
+
+  const stamped = lines.map((line) => ({
+    ts: nowTs(),
+    text: line,
+  }));
+
+  deviceQueuedLines.push(...stamped);
+
+  if (deviceQueuedLines.length >= DEVICE_MAX_BATCH_LINES) {
+    flushDeviceLogQueue();
+    return;
+  }
+
+  if (!deviceFlushTimer) {
+    deviceFlushTimer = setTimeout(flushDeviceLogQueue, DEVICE_LOG_FLUSH_MS);
+  }
+};
+
+const clearDeviceReconnectTimer = () => {
+  if (deviceReconnectTimer) {
+    clearTimeout(deviceReconnectTimer);
+    deviceReconnectTimer = null;
+  }
+};
+
+const parseDeviceAddress = (value) => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const match = trimmed.match(/^((?:\d{1,3}\.){3}\d{1,3})(?::(\d{1,5}))?$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    host: match[1],
+    port: match[2] ? Number(match[2]) : undefined,
+  };
+};
+
+const closeDeviceSocket = () => {
+  if (!deviceLogSocket) {
+    return;
+  }
+
+  const socket = deviceLogSocket;
+  deviceLogSocket = null;
+  socket.removeAllListeners();
+  socket.destroy();
+};
+
+const stopDeviceLogStreaming = (reason = 'stopped') => {
+  deviceIntentionalStop = true;
+  clearDeviceReconnectTimer();
+  closeDeviceSocket();
+  deviceBuffer = '';
+  flushDeviceLogQueue();
+  sendDeviceStatus({ type: 'idle', message: reason });
+};
+
+const scheduleDeviceReconnect = () => {
+  if (deviceIntentionalStop || !deviceCurrentConfig) {
+    return;
+  }
+
+  clearDeviceReconnectTimer();
+
+  const delay = Math.min(
+    DEVICE_RECONNECT_DELAY_MS * (2 ** Math.min(deviceReconnectAttempts, 3)),
+    DEVICE_MAX_RECONNECT_DELAY_MS,
+  );
+  deviceReconnectAttempts += 1;
+
+  sendDeviceStatus({
+    type: 'reconnecting',
+    message: `Device logs disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`,
+    attempt: deviceReconnectAttempts,
+  });
+
+  deviceReconnectTimer = setTimeout(() => {
+    deviceReconnectTimer = null;
+    if (!deviceIntentionalStop && deviceCurrentConfig) {
+      connectDeviceLogSocket(deviceCurrentConfig);
+    }
+  }, delay);
+};
+
+function connectDeviceLogSocket(config) {
+  if (!config) {
+    return;
+  }
+
+  closeDeviceSocket();
+  clearDeviceReconnectTimer();
+
+  const socket = new net.Socket();
+  deviceLogSocket = socket;
+  socket.setNoDelay(true);
+  socket.setKeepAlive(true, 10000);
+
+  sendDeviceStatus({
+    type: 'connecting',
+    message: `Connecting to Device logs at ${config.host}:${config.port}...`,
+    host: config.host,
+    port: config.port,
+  });
+
+  socket.connect(config.port, config.host, () => {
+    deviceReconnectAttempts = 0;
+    sendDeviceStatus({
+      type: 'connected',
+      message: `Connected to Device logs (${config.host}:${config.port})`,
+      host: config.host,
+      port: config.port,
+    });
+  });
+
+  socket.on('data', (chunk) => {
+    deviceBuffer += chunk.toString('utf8');
+    const lines = deviceBuffer.split(/\r?\n/);
+    deviceBuffer = lines.pop() || '';
+
+    const cleaned = lines
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length > 0);
+
+    queueDeviceLogLines(cleaned);
+  });
+
+  socket.on('error', (error) => {
+    sendDeviceStatus({ type: 'error', message: `Device log socket error: ${error.message}` });
+  });
+
+  socket.on('close', () => {
+    if (deviceLogSocket === socket) {
+      deviceLogSocket = null;
+    }
+
+    if (deviceIntentionalStop) {
+      sendDeviceStatus({ type: 'idle', message: 'Device logs stopped' });
+      return;
+    }
+
+    scheduleDeviceReconnect();
+  });
+}
 
 const isValidDeviceAddress = (value) => {
   if (typeof value !== 'string') {
@@ -117,6 +328,10 @@ app.on('window-all-closed', () => {
   }
 });
 
+app.on('before-quit', () => {
+  stopDeviceLogStreaming('app quitting');
+});
+
 app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
@@ -150,6 +365,9 @@ ipcMain.handle('start-video', async (event, device) => {
 
       if (platform === 'linux') {
         ffmpegArgs = [
+          '-hide_banner',
+          '-nostats',
+          '-loglevel', FFMPEG_LOG_LEVEL,
           '-fflags', 'nobuffer',
           '-flags', 'low_delay',
           '-f', 'v4l2',
@@ -165,6 +383,9 @@ ipcMain.handle('start-video', async (event, device) => {
         ];
       } else if (platform === 'win32') {
         ffmpegArgs = [
+          '-hide_banner',
+          '-nostats',
+          '-loglevel', FFMPEG_LOG_LEVEL,
           '-fflags', 'nobuffer',
           '-flags', 'low_delay',
           '-f', 'dshow',
@@ -193,17 +414,25 @@ ipcMain.handle('start-video', async (event, device) => {
         // Accumulate incoming chunks into a buffer
         frameBuffer = Buffer.concat([frameBuffer, chunk]);
 
-        // Extract and send complete frames only
-        while (frameBuffer.length >= FRAME_BYTES) {
-          const frame = frameBuffer.slice(0, FRAME_BYTES);
-          frameBuffer = frameBuffer.slice(FRAME_BYTES);
-          safeSendToRenderer('video-frame', frame);
+        // Send only the most recent complete frame to avoid backlog build-up.
+        if (frameBuffer.length >= FRAME_BYTES) {
+          const remainder = frameBuffer.length % FRAME_BYTES;
+          const latestFrameStart = frameBuffer.length - remainder - FRAME_BYTES;
+          const frame = frameBuffer.slice(latestFrameStart, latestFrameStart + FRAME_BYTES);
+
+          frameBuffer = remainder > 0
+            ? frameBuffer.slice(frameBuffer.length - remainder)
+            : Buffer.alloc(0);
+
+          const framePayload = frame.buffer.slice(
+            frame.byteOffset,
+            frame.byteOffset + frame.byteLength,
+          );
+          safeSendToRenderer('video-frame', framePayload);
         }
       });
 
-      ffmpegProcess.stderr.on('data', (data) => {
-        console.error(`ffmpeg stderr: ${data}`);
-      });
+      ffmpegProcess.stderr.on('data', handleFfmpegStderr);
 
       ffmpegProcess.on('error', (err) => {
         ffmpegProcess = null;
@@ -314,4 +543,42 @@ ipcMain.handle('send-remote-keypress', async (event, payload) => {
     safeSendToRenderer('remote-status', { type: 'error', message, key });
     throw new Error(message);
   }
+});
+
+ipcMain.handle('set-device-log-source', async (event, payload) => {
+  const address = payload?.deviceAddress;
+  const parsed = parseDeviceAddress(address || '');
+
+  if (!parsed) {
+    stopDeviceLogStreaming('Device logs disabled');
+    return { ok: true, connected: false };
+  }
+
+  const nextConfig = {
+    host: parsed.host,
+    port: parsed.port || DEVICE_DEFAULT_LOG_PORT,
+  };
+
+  const unchanged = deviceCurrentConfig
+    && deviceCurrentConfig.host === nextConfig.host
+    && deviceCurrentConfig.port === nextConfig.port
+    && deviceLogSocket
+    && !deviceLogSocket.destroyed;
+
+  if (unchanged) {
+    return { ok: true, connected: true };
+  }
+
+  deviceCurrentConfig = nextConfig;
+  deviceIntentionalStop = false;
+  deviceReconnectAttempts = 0;
+  connectDeviceLogSocket(nextConfig);
+
+  return { ok: true, connected: true };
+});
+
+ipcMain.handle('stop-device-logs', async () => {
+  stopDeviceLogStreaming('Device logs stopped');
+  deviceCurrentConfig = null;
+  return { ok: true };
 });
