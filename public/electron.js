@@ -31,9 +31,11 @@ let deviceCurrentConfig = null;
 let deviceIntentionalStop = false;
 let deviceReconnectAttempts = 0;
 const PREVIEW = {
-  width: 960,
-  height: 540,
-  fps: 24,
+  width: 640,
+  height: 360,
+  fps: 12,
+  captureFps: 15,
+  maxIpcFps: 10,
 };
 const FFMPEG_LOG_LEVEL = 'warning';
 const DEVICE_DEFAULT_LOG_PORT = 8085;
@@ -358,8 +360,13 @@ ipcMain.handle('start-video', async (event, device) => {
       const WIDTH = PREVIEW.width;
       const HEIGHT = PREVIEW.height;
       const FPS = PREVIEW.fps;
+      const CAPTURE_FPS = PREVIEW.captureFps || FPS;
+      const IPC_FPS = PREVIEW.maxIpcFps;
+      const IPC_FRAME_INTERVAL_MS = Math.max(1, Math.round(1000 / IPC_FPS));
       const FRAME_BYTES = WIDTH * HEIGHT * 4; // RGBA
-      let frameBuffer = Buffer.alloc(0);
+      let partialFrame = Buffer.allocUnsafe(FRAME_BYTES);
+      let partialOffset = 0;
+      let lastSentAt = 0;
 
       let ffmpegArgs = [];
 
@@ -372,12 +379,12 @@ ipcMain.handle('start-video', async (event, device) => {
           '-flags', 'low_delay',
           '-f', 'v4l2',
           '-input_format', 'mjpeg',
-          '-framerate', '30',
+          '-framerate', `${CAPTURE_FPS}`,
           '-i', device,
           '-f', 'rawvideo',
           '-vcodec', 'rawvideo',
           '-pix_fmt', 'rgba',
-          '-vf', `scale=${WIDTH}:${HEIGHT}:flags=bicubic`,
+          '-vf', `scale=${WIDTH}:${HEIGHT}:flags=fast_bilinear`,
           '-r', `${FPS}`,
           'pipe:1',
         ];
@@ -389,11 +396,12 @@ ipcMain.handle('start-video', async (event, device) => {
           '-fflags', 'nobuffer',
           '-flags', 'low_delay',
           '-f', 'dshow',
+          '-framerate', `${CAPTURE_FPS}`,
           '-i', `video="${device}"`,
           '-f', 'rawvideo',
           '-vcodec', 'rawvideo',
           '-pix_fmt', 'rgba',
-          '-vf', `scale=${WIDTH}:${HEIGHT}:flags=bicubic`,
+          '-vf', `scale=${WIDTH}:${HEIGHT}:flags=fast_bilinear`,
           '-r', `${FPS}`,
           'pipe:1',
         ];
@@ -411,24 +419,32 @@ ipcMain.handle('start-video', async (event, device) => {
       });
 
       ffmpegProcess.stdout.on('data', (chunk) => {
-        // Accumulate incoming chunks into a buffer
-        frameBuffer = Buffer.concat([frameBuffer, chunk]);
+        let readOffset = 0;
 
-        // Send only the most recent complete frame to avoid backlog build-up.
-        if (frameBuffer.length >= FRAME_BYTES) {
-          const remainder = frameBuffer.length % FRAME_BYTES;
-          const latestFrameStart = frameBuffer.length - remainder - FRAME_BYTES;
-          const frame = frameBuffer.slice(latestFrameStart, latestFrameStart + FRAME_BYTES);
+        while (readOffset < chunk.length) {
+          const remainingForFrame = FRAME_BYTES - partialOffset;
+          const toCopy = Math.min(remainingForFrame, chunk.length - readOffset);
 
-          frameBuffer = remainder > 0
-            ? frameBuffer.slice(frameBuffer.length - remainder)
-            : Buffer.alloc(0);
+          chunk.copy(partialFrame, partialOffset, readOffset, readOffset + toCopy);
+          partialOffset += toCopy;
+          readOffset += toCopy;
 
-          const framePayload = frame.buffer.slice(
-            frame.byteOffset,
-            frame.byteOffset + frame.byteLength,
-          );
-          safeSendToRenderer('video-frame', framePayload);
+          if (partialOffset !== FRAME_BYTES) {
+            continue;
+          }
+
+          const now = Date.now();
+          if ((now - lastSentAt) >= IPC_FRAME_INTERVAL_MS) {
+            const framePayload = partialFrame.buffer.slice(
+              partialFrame.byteOffset,
+              partialFrame.byteOffset + partialFrame.byteLength,
+            );
+            safeSendToRenderer('video-frame', framePayload);
+            lastSentAt = now;
+          }
+
+          partialFrame = Buffer.allocUnsafe(FRAME_BYTES);
+          partialOffset = 0;
         }
       });
 
