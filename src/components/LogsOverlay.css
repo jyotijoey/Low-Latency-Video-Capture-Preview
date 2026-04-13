@@ -205,9 +205,10 @@
   padding: 1px 8px;
   font-family: monospace;
   font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-all;
+  line-height: 20px;
+  height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .log-line + .log-line {
@@ -224,6 +225,8 @@
 .log-line__text {
   flex: 1;
   color: #c8c8c8;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .log-line--info  .log-line__text { color: #c8c8c8; }

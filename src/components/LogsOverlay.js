@@ -6,6 +6,7 @@ import './LogsOverlay.css';
 function LogsOverlay({ logs, onClear }) {
   const [expanded, setExpanded] = useState(false);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState('all');
   const [panelHeight, setPanelHeight] = useState(242);
   const [isResizing, setIsResizing] = useState(false);
@@ -13,13 +14,31 @@ function LogsOverlay({ logs, onClear }) {
   const resizeStartHeightRef = useRef(242);
 
   const latestLog = logs[logs.length - 1];
-  const normalizedSearch = search.trim().toLowerCase();
+  const normalizedSearch = debouncedSearch.trim().toLowerCase();
 
-  const filteredLogs = useMemo(() => logs.filter((log) => {
-    if (levelFilter !== 'all' && log.level !== levelFilter) return false;
-    if (normalizedSearch && !log.text.toLowerCase().includes(normalizedSearch)) return false;
-    return true;
-  }), [logs, levelFilter, normalizedSearch]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const filteredLogs = useMemo(() => {
+    if (!expanded) {
+      return logs;
+    }
+
+    if (levelFilter === 'all' && !normalizedSearch) {
+      return logs;
+    }
+
+    return logs.filter((log) => {
+      if (levelFilter !== 'all' && log.level !== levelFilter) return false;
+      if (normalizedSearch && !(log.searchText || '').includes(normalizedSearch)) return false;
+      return true;
+    });
+  }, [expanded, logs, levelFilter, normalizedSearch]);
 
   const copyLastNSeconds = (n) => {
     const cutoff = Date.now() - n * 1000;

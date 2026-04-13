@@ -44,6 +44,7 @@ function App() {
   const frameRenderRequestRef = useRef(null);
   const pendingLogsRef = useRef([]);
   const flushLogsTimerRef = useRef(null);
+  const logIdRef = useRef(0);
   const [isRunning, setIsRunning] = useState(false);
   const [platform, setPlatform] = useState('');
   const [devices, setDevices] = useState([]);
@@ -75,12 +76,14 @@ function App() {
   }, [MAX_LOG_ENTRIES]);
 
   const addLog = useCallback((text, level = 'info', timestamp = Date.now()) => {
+    const normalizedText = String(text || '');
     pendingLogsRef.current.push({
-      id: `${timestamp}-${Math.random()}`,
+      id: `${timestamp}-${logIdRef.current++}`,
       ts: timestamp,
       timeLabel: new Date(timestamp).toLocaleTimeString(),
       level,
-      text,
+      text: normalizedText,
+      searchText: normalizedText.toLowerCase(),
     });
 
     if (!flushLogsTimerRef.current) {
@@ -95,12 +98,14 @@ function App() {
 
     const mapped = entries.map((entry) => {
       const ts = typeof entry.ts === 'number' ? entry.ts : Date.now();
+      const text = String(entry.text || '');
       return {
-        id: `${ts}-${Math.random()}`,
+        id: `${ts}-${logIdRef.current++}`,
         ts,
         timeLabel: new Date(ts).toLocaleTimeString(),
         level: entry.level || 'info',
-        text: entry.text,
+        text,
+        searchText: text.toLowerCase(),
       };
     });
 
